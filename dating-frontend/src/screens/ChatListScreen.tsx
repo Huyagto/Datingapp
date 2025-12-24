@@ -16,6 +16,7 @@ import { useCallback, useState } from "react";
 
 import { MY_MATCHES } from "../graphql/match";
 
+// Thêm type cho currentUser
 type User = {
   id: string;
   name: string;
@@ -29,11 +30,18 @@ type Match = {
   lastMessage?: {
     content: string;
     createdAt: string;
+    senderId: string; // Thêm senderId để xác định ai gửi tin nhắn cuối
   };
   unreadCount?: number;
 };
 
-// 🔥 FIX: Hàm tạo màu với kiểm tra seed
+// Giả sử bạn có thông tin currentUser từ context/auth
+// Hoặc bạn có thể truyền qua props/navigation
+interface ChatListScreenProps {
+  navigation: any;
+  currentUserId?: string; // Thêm currentUserId để xác định ai là người dùng hiện tại
+}
+
 const getRandomColor = (seed?: string) => {
   const colors = [
     "#FF4081", "#2196F3", "#4CAF50", 
@@ -41,9 +49,8 @@ const getRandomColor = (seed?: string) => {
     "#795548", "#607D8B"
   ];
   
-  // Nếu seed undefined hoặc rỗng, dùng màu mặc định
   if (!seed || seed.trim() === "") {
-    return "#FF4081"; // Màu chủ đạo của app
+    return "#FF4081";
   }
   
   try {
@@ -56,7 +63,7 @@ const getRandomColor = (seed?: string) => {
   }
 };
 
-export default function ChatListScreen({ navigation }: any) {
+export default function ChatListScreen({ navigation, currentUserId }: ChatListScreenProps) {
   const { data, loading, refetch } = useQuery<{
     myMatches: Match[];
   }>(MY_MATCHES);
@@ -75,23 +82,73 @@ export default function ChatListScreen({ navigation }: any) {
     setRefreshing(false);
   }, []);
 
-  // 🔥 FIX: Xử lý partner an toàn
+  // 🔥 FIX: Xác định đúng partner (người còn lại trong match)
   const getPartnerInfo = (match: Match) => {
-    // Kiểm tra userB tồn tại và có thuộc tính cần thiết
-    const partner = match.userB || { 
-      id: match.id || "unknown", 
-      name: "Người dùng", 
-      avatar: undefined 
-    };
-    
-    const partnerName = partner.name || "Người dùng";
+    // Kiểm tra currentUserId có tồn tại không
+    if (!currentUserId) {
+      // Nếu không có currentUserId, mặc định hiển thị userB
+      const partner = match.userB || { 
+        id: "unknown", 
+        name: "Người dùng", 
+        avatar: undefined 
+      };
+      return {
+        id: partner.id,
+        name: partner.name || "Người dùng",
+        avatar: partner.avatar,
+        initial: (partner.name || "N").charAt(0).toUpperCase(),
+      };
+    }
+
+    // Xác định ai là partner (không phải currentUser)
+    let partner: User;
+    if (match.userA.id === currentUserId) {
+      // Nếu currentUser là userA thì partner là userB
+      partner = match.userB;
+    } else if (match.userB.id === currentUserId) {
+      // Nếu currentUser là userB thì partner là userA
+      partner = match.userA;
+    } else {
+      // Fallback: lấy userB nếu không match với currentUserId
+      partner = match.userB;
+    }
+
+    const partnerName = partner?.name || "Người dùng";
     
     return {
-      id: partner.id || match.id,
+      id: partner?.id || match.id,
       name: partnerName,
-      avatar: partner.avatar,
+      avatar: partner?.avatar,
       initial: partnerName.charAt(0).toUpperCase(),
     };
+  };
+
+  // 🔥 FIX: Format tin nhắn cuối với prefix người gửi nếu cần
+  const getLastMessageText = (match: Match) => {
+    if (!match.lastMessage) {
+      return "Bắt đầu trò chuyện...";
+    }
+
+    const lastMessage = match.lastMessage;
+    
+    // Nếu có currentUserId và có senderId, thêm prefix
+    if (currentUserId && lastMessage.senderId) {
+      const isSentByCurrentUser = lastMessage.senderId === currentUserId;
+      
+      // Xác định tên người gửi
+      let senderName = "";
+      if (lastMessage.senderId === match.userA.id) {
+        senderName = isSentByCurrentUser ? "Bạn" : match.userA.name;
+      } else if (lastMessage.senderId === match.userB.id) {
+        senderName = isSentByCurrentUser ? "Bạn" : match.userB.name;
+      } else {
+        senderName = "Người gửi";
+      }
+
+      return `${isSentByCurrentUser ? "Bạn: " : ""}${lastMessage.content}`;
+    }
+
+    return lastMessage.content;
   };
 
   const formatTime = (dateString?: string) => {
@@ -126,12 +183,12 @@ export default function ChatListScreen({ navigation }: any) {
     }
   };
 
-  // Component Chat Item - 🔥 FIX: Xử lý undefined
+  // Component Chat Item
   const ChatItem = ({ item }: { item: Match }) => {
     if (!item) return null;
     
     const partner = getPartnerInfo(item);
-    const lastMessage = item.lastMessage?.content || "Bắt đầu trò chuyện...";
+    const lastMessage = getLastMessageText(item);
     const timeAgo = formatTime(item.lastMessage?.createdAt);
     const unreadCount = item.unreadCount || 0;
     
@@ -142,6 +199,7 @@ export default function ChatListScreen({ navigation }: any) {
           navigation.navigate("Chat", {
             matchId: item.id || "unknown",
             partnerName: partner.name,
+            partnerId: partner.id,
           })
         }
         activeOpacity={0.7}
@@ -299,6 +357,7 @@ export default function ChatListScreen({ navigation }: any) {
   );
 }
 
+// Styles giữ nguyên như trước
 const styles = StyleSheet.create({
   container: {
     flex: 1,

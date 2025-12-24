@@ -11,8 +11,9 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  AppState,
 } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   useQuery,
   useMutation,
@@ -63,6 +64,7 @@ export default function ChatScreen(props: any) {
   const [myId, setMyId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showDateHeaders, setShowDateHeaders] = useState<Record<string, boolean>>({});
+  const [lastRefetchTime, setLastRefetchTime] = useState<number>(Date.now());
 
   const listRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
@@ -105,26 +107,30 @@ export default function ChatScreen(props: any) {
     };
     getUserId();
   }, []);
-
-  /* ======================
-     LOAD CHAT HISTORY
-  ====================== */
-  const { data, loading, error } = useQuery<
+  const { data, loading, error, refetch } = useQuery<
     MessagesResponse,
     MessagesVariables
   >(MESSAGES, {
     variables: { matchId },
     fetchPolicy: "network-only",
+    notifyOnNetworkStatusChange: true,
+    pollInterval: 30000, 
   });
-
   // Xử lý data khi load xong
   useEffect(() => {
     if (data?.messages) {
-      setMessages(data.messages);
+      console.log("📨 Setting messages:", data.messages.length);
+      
+      // Sắp xếp messages theo thời gian
+      const sortedMessages = [...data.messages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      
+      setMessages(sortedMessages);
       
       // Set date headers với type đầy đủ
       const headers: Record<string, boolean> = {};
-      data.messages.forEach((msg: Message) => {
+      sortedMessages.forEach((msg: Message) => {
         const date = formatDateHeader(msg.createdAt);
         headers[date] = true;
       });
@@ -132,28 +138,39 @@ export default function ChatScreen(props: any) {
       
       // Auto scroll to bottom
       setTimeout(() => {
-        listRef.current?.scrollToEnd({ animated: false });
+        if (listRef.current) {
+          listRef.current.scrollToEnd({ animated: false });
+        }
       }, 100);
     }
   }, [data]);
 
   /* ======================
-     REALTIME SUBSCRIPTION
+     REALTIME SUBSCRIPTION - FIXED
   ====================== */
-  useSubscription<
+  const { data: subscriptionData } = useSubscription<
     OnMessageResponse,
     OnMessageVariables
   >(ON_MESSAGE, {
     variables: { matchId },
-    onData: ({ data: subscriptionData }) => {
-      const newMsg = subscriptionData.data?.onMessage;
-      if (!newMsg) return;
+  });
+
+  // Xử lý subscription data khi có
+  useEffect(() => {
+    if (subscriptionData?.onMessage) {
+      const newMsg = subscriptionData.onMessage;
+      console.log("📩 New realtime message received via subscription:", newMsg);
 
       setMessages((prev) => {
-        // Avoid duplicates
-        if (prev.some((m: Message) => m.id === newMsg.id)) {
+        // Avoid duplicates - kiểm tra kỹ hơn
+        const isDuplicate = prev.some((m: Message) => m.id === newMsg.id);
+        
+        if (isDuplicate) {
+          console.log("🔄 Duplicate message detected, skipping");
           return prev;
         }
+        
+        console.log("✅ Adding new subscription message to state");
         
         // Add date header if needed
         const date = formatDateHeader(newMsg.createdAt);
@@ -164,71 +181,147 @@ export default function ChatScreen(props: any) {
           }));
         }
         
-        return [...prev, newMsg];
+        // Thêm tin nhắn mới và sắp xếp lại
+        const updatedMessages = [...prev, newMsg].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        
+        return updatedMessages;
       });
-    },
-  });
+    }
+  }, [subscriptionData, showDateHeaders]);
+
+  // Debug subscription connection
+  useEffect(() => {
+    console.log("🎯 Subscription status for matchId:", matchId);
+    console.log("📡 Subscription data available:", !!subscriptionData);
+  }, [subscriptionData, matchId]);
+
+  /* ======================
+     HANDLE APP STATE CHANGES - Auto refetch khi app active
+  ====================== */
+  useEffect(() => {
+    // Refetch khi quay lại màn hình chat
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log("🔄 Chat screen focused, auto refetching messages");
+      refetch();
+    });
+
+    // Refetch khi app từ background trở lại
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        console.log("🔄 App became active, auto refetching messages");
+        refetch();
+      }
+    };
+
+    // Thêm event listeners
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      unsubscribe();
+      appStateSubscription.remove();
+    };
+  }, [navigation, refetch]);
+
+  /* ======================
+     AUTO REFRESH MESSAGES - Tự động load tin nhắn mới
+  ====================== */
+  useEffect(() => {
+    // Kiểm tra tin nhắn mới mỗi 15 giây
+    const autoRefreshInterval = setInterval(() => {
+      if (!loading) {
+        console.log("🔄 Auto-refreshing messages");
+        refetch();
+      }
+    }, 15000); // 15 giây
+
+    return () => clearInterval(autoRefreshInterval);
+  }, [loading, refetch]);
 
   /* ======================
      UTILS
   ====================== */
   const formatTime = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('vi-VN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    } catch (e) {
+      return "";
+    }
   };
 
   const formatDateHeader = (dateString: string): string => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    if (date.toDateString() === today.toDateString()) {
-      return "Hôm nay";
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return "Hôm qua";
-    } else {
-      return date.toLocaleDateString('vi-VN', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-      });
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      if (date.toDateString() === today.toDateString()) {
+        return "Hôm nay";
+      } else if (date.toDateString() === yesterday.toDateString()) {
+        return "Hôm qua";
+      } else {
+        return date.toLocaleDateString('vi-VN', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        });
+      }
+    } catch (e) {
+      return "";
     }
   };
 
   const formatMessageDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays < 1) {
-      return formatTime(dateString);
-    } else if (diffDays < 7) {
-      return date.toLocaleDateString('vi-VN', { weekday: 'short' }) + ' ' + formatTime(dateString);
-    } else {
-      return date.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' }) + ' ' + formatTime(dateString);
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 1) {
+        return formatTime(dateString);
+      } else if (diffDays < 7) {
+        return date.toLocaleDateString('vi-VN', { weekday: 'short' }) + ' ' + formatTime(dateString);
+      } else {
+        return date.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' }) + ' ' + formatTime(dateString);
+      }
+    } catch (e) {
+      return "";
     }
   };
 
-  const shouldShowDateHeader = (index: number): boolean => {
+  const shouldShowDateHeader = useCallback((index: number): boolean => {
     if (index === 0) return true;
     
     const currentMsg = messages[index];
     const prevMsg = messages[index - 1];
     
-    const currentDate = new Date(currentMsg.createdAt).toDateString();
-    const prevDate = new Date(prevMsg.createdAt).toDateString();
+    if (!currentMsg?.createdAt || !prevMsg?.createdAt) return false;
     
-    return currentDate !== prevDate;
-  };
+    try {
+      const currentDate = new Date(currentMsg.createdAt).toDateString();
+      const prevDate = new Date(prevMsg.createdAt).toDateString();
+      return currentDate !== prevDate;
+    } catch (e) {
+      return false;
+    }
+  }, [messages]);
 
-  const renderDateHeader = (dateString: string) => {
+  const renderDateHeader = useCallback((dateString: string) => {
+    if (!dateString) return null;
     const date = formatDateHeader(dateString);
+    if (!date) return null;
+    
     return (
       <View style={styles.dateHeaderContainer}>
         <View style={styles.dateHeaderLine} />
@@ -236,15 +329,41 @@ export default function ChatScreen(props: any) {
         <View style={styles.dateHeaderLine} />
       </View>
     );
-  };
+  }, []);
 
   /* ======================
-     SEND MESSAGE
+     SEND MESSAGE - FIXED
   ====================== */
   const [sendMessage] = useMutation<
     SendMessageResponse,
     SendMessageVariables
-  >(SEND_MESSAGE);
+  >(SEND_MESSAGE, {
+    onCompleted: (data) => {
+      console.log("✅ Mutation completed:", data?.sendMessage);
+      
+      // Thêm tin nhắn từ mutation result vào state nếu subscription không hoạt động
+      const sentMessage = data?.sendMessage;
+      if (sentMessage) {
+        console.log("🔄 Adding message from mutation result to state");
+        
+        setMessages((prev) => {
+          // Kiểm tra xem tin nhắn đã có chưa
+          const alreadyExists = prev.some(m => m.id === sentMessage.id);
+          if (alreadyExists) {
+            console.log("🔄 Message already exists in state");
+            return prev;
+          }
+          
+          // Thêm tin nhắn mới và sắp xếp lại
+          const updatedMessages = [...prev, sentMessage].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          
+          return updatedMessages;
+        });
+      }
+    },
+  });
 
   const handleSend = async () => {
     if (!text.trim() || !myId || isSending) return;
@@ -252,41 +371,100 @@ export default function ChatScreen(props: any) {
     setIsSending(true);
     
     // Optimistic message
+    const tempId = "tmp-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9);
     const optimisticMsg: Message = {
-      id: "tmp-" + Date.now(),
+      id: tempId,
       senderId: myId,
       text: text.trim(),
       createdAt: new Date().toISOString(),
     };
 
+    console.log("📤 Sending optimistic message:", optimisticMsg);
+    
     setMessages((prev) => [...prev, optimisticMsg]);
     const currentText = text;
     setText("");
 
     try {
-      await sendMessage({
+      const result = await sendMessage({
         variables: {
           matchId,
           text: currentText.trim(),
         },
       });
-    } catch (e) {
+      
+      console.log("✅ Message sent successfully:", result.data?.sendMessage);
+      
+      // Tự động refetch sau khi gửi tin nhắn thành công
+      setTimeout(() => {
+        console.log("🔄 Auto refetching after sending message");
+        refetch();
+      }, 1000);
+      
+      // Tự động thay thế tin nhắn tạm sau 2 giây nếu subscription không hoạt động
+      setTimeout(() => {
+        setMessages((prev) => {
+          // Kiểm tra xem tin nhắn thật đã được thêm chưa
+          const realMessageExists = prev.some(m => m.id === result.data?.sendMessage?.id);
+          const tempMessageExists = prev.some(m => m.id === tempId);
+          
+          if (!realMessageExists && tempMessageExists) {
+            console.log("🕒 Timeout - replacing temporary message with real one");
+            // Thay thế tin nhắn tạm bằng tin nhắn thật
+            const filtered = prev.filter(msg => msg.id !== tempId);
+            if (result.data?.sendMessage) {
+              return [...filtered, result.data.sendMessage].sort(
+                (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+              );
+            }
+          }
+          return prev;
+        });
+      }, 2000);
+      
+    } catch (e: any) {
       console.log("❌ SEND MESSAGE ERROR", e);
       Alert.alert("Lỗi", "Không thể gửi tin nhắn. Vui lòng thử lại.");
       // Remove optimistic message on error
-      setMessages((prev: Message[]) => prev.filter(msg => msg.id !== optimisticMsg.id));
+      setMessages((prev: Message[]) => {
+        const filtered = prev.filter(msg => msg.id !== tempId);
+        console.log("❌ Error - removed optimistic message");
+        return filtered;
+      });
       setText(currentText);
     } finally {
       setIsSending(false);
     }
   };
 
-  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+  /* ======================
+     RENDER MESSAGE FUNCTION
+  ====================== */
+  const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
     const isMe = item.senderId === myId;
     const showHeader = shouldShowDateHeader(index);
-    const showTime = index === messages.length - 1 || 
-                    messages[index + 1]?.senderId !== item.senderId ||
-                    new Date(messages[index + 1]?.createdAt).getTime() - new Date(item.createdAt).getTime() > 300000; // 5 minutes
+    const isTemporary = item.id.includes('tmp-');
+    
+    // Kiểm tra xem có nên hiển thị thời gian
+    let showTime = false;
+    if (index === messages.length - 1) {
+      showTime = true;
+    } else if (messages[index + 1]) {
+      const nextMsg = messages[index + 1];
+      if (nextMsg.senderId !== item.senderId) {
+        showTime = true;
+      } else if (item.createdAt && nextMsg.createdAt) {
+        try {
+          const currentTime = new Date(item.createdAt).getTime();
+          const nextTime = new Date(nextMsg.createdAt).getTime();
+          if (nextTime - currentTime > 300000) { // 5 minutes
+            showTime = true;
+          }
+        } catch (e) {
+          showTime = true;
+        }
+      }
+    }
 
     return (
       <>
@@ -308,27 +486,31 @@ export default function ChatScreen(props: any) {
           <View style={[
             styles.messageBubble,
             isMe ? styles.myMessageBubble : styles.theirMessageBubble,
+            isTemporary && styles.temporaryMessageBubble,
           ]}>
             <Text style={[
               styles.messageText,
               isMe ? styles.myMessageText : styles.theirMessageText,
+              isTemporary && styles.temporaryMessageText,
             ]}>
               {item.text}
             </Text>
             
-            {showTime && (
+            {showTime && item.createdAt && (
               <Text style={[
                 styles.messageTime,
                 isMe ? styles.myMessageTime : styles.theirMessageTime,
+                isTemporary && styles.temporaryMessageTime,
               ]}>
                 {formatMessageDate(item.createdAt)}
+                {isTemporary && ' (Đang gửi...)'}
               </Text>
             )}
           </View>
         </View>
       </>
     );
-  };
+  }, [myId, messages, partnerAvatar, partnerName, shouldShowDateHeader, renderDateHeader]);
 
   /* ======================
      RENDER
@@ -344,29 +526,34 @@ export default function ChatScreen(props: any) {
   }
 
   if (error) {
+    console.error("❌ GraphQL Error:", error);
     return (
       <View style={styles.errorContainer}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
         <Text style={styles.errorIcon}>😔</Text>
         <Text style={styles.errorTitle}>Không thể tải tin nhắn</Text>
         <Text style={styles.errorMessage}>
-          Vui lòng kiểm tra kết nối và thử lại
+          {error.message}
         </Text>
         <TouchableOpacity
           style={styles.retryButton}
-          onPress={() => navigation?.goBack?.()}
+          onPress={() => refetch()}
         >
-          <Text style={styles.retryButtonText}>Quay lại</Text>
+          <Text style={styles.retryButtonText}>Thử lại</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
       <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
       
-      {/* Header */}
+      {/* Header - Đã bỏ nút refresh */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity
           style={styles.backButton}
@@ -387,89 +574,106 @@ export default function ChatScreen(props: any) {
             <Text style={styles.partnerName} numberOfLines={1}>
               {partnerName}
             </Text>
-            <Text style={styles.onlineStatus}>Đang hoạt động</Text>
+            <Text style={styles.onlineStatus}>
+              {subscriptionData ? "🟢 Đang hoạt động" : "⚪️ Đang kết nối..."}
+            </Text>
           </View>
         </View>
         
-        <TouchableOpacity style={styles.menuButton}>
-          <Text style={styles.menuIcon}>⋯</Text>
-        </TouchableOpacity>
+        {/* Đã bỏ nút refresh */}
+        <View style={{ width: 40 }} />
       </View>
 
-      {/* Messages List */}
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoid}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-      >
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(item: Message) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: 20 },
-          ]}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => {
-            setTimeout(() => {
-              listRef.current?.scrollToEnd({ animated: true });
-            }, 100);
-          }}
-          onLayout={() => {
-            setTimeout(() => {
-              listRef.current?.scrollToEnd({ animated: false });
-            }, 100);
-          }}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>💬</Text>
-              <Text style={styles.emptyTitle}>Bắt đầu cuộc trò chuyện</Text>
-              <Text style={styles.emptyMessage}>
-                Hãy gửi lời chào đến {partnerName}!
-              </Text>
-            </View>
-          }
-        />
-
-        {/* Input Area */}
-        <View style={styles.inputContainer}>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              ref={inputRef}
-              value={text}
-              onChangeText={setText}
-              placeholder="Nhập tin nhắn..."
-              placeholderTextColor="#999"
-              style={styles.textInput}
-              multiline
-              maxLength={500}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-              blurOnSubmit={false}
-            />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!text.trim() || isSending) && styles.sendButtonDisabled,
-              ]}
-              onPress={handleSend}
-              disabled={!text.trim() || isSending}
-            >
-              {isSending ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Text style={styles.sendButtonIcon}>↑</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.charCounter}>
-            {text.length}/500
+      {/* Debug Info - Chỉ hiển thị trong dev mode */}
+      {__DEV__ && (
+        <View style={styles.debugContainer}>
+          <Text style={styles.debugText}>
+            Tin nhắn: {messages.length} | Tự động làm mới: 15s | Sub: {subscriptionData ? "✅" : "❌"}
           </Text>
         </View>
-      </KeyboardAvoidingView>
-    </View>
+      )}
+
+      {/* Messages List - Đã bỏ pull-to-refresh */}
+      <FlatList
+        ref={listRef}
+        data={messages}
+        keyExtractor={(item: Message) => item.id}
+        renderItem={renderMessage}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: 20 },
+        ]}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => {
+          setTimeout(() => {
+            if (listRef.current) {
+              listRef.current.scrollToEnd({ animated: true });
+            }
+          }, 100);
+        }}
+        onLayout={() => {
+          setTimeout(() => {
+            if (listRef.current) {
+              listRef.current.scrollToEnd({ animated: false });
+            }
+          }, 100);
+        }}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>💬</Text>
+            <Text style={styles.emptyTitle}>Bắt đầu cuộc trò chuyện</Text>
+            <Text style={styles.emptyMessage}>
+              Hãy gửi lời chào đến {partnerName}!
+            </Text>
+            <TouchableOpacity
+              style={styles.sendHelloButton}
+              onPress={() => {
+                setText("Xin chào!");
+                setTimeout(() => inputRef.current?.focus(), 100);
+              }}
+            >
+              <Text style={styles.sendHelloButtonText}>Gửi lời chào</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
+
+      {/* Input Area */}
+      <View style={[styles.inputContainer, { paddingBottom: insets.bottom + 10 }]}>
+        <View style={styles.inputWrapper}>
+          <TextInput
+            ref={inputRef}
+            value={text}
+            onChangeText={setText}
+            placeholder="Nhập tin nhắn..."
+            placeholderTextColor="#999"
+            style={styles.textInput}
+            multiline
+            maxLength={500}
+            onSubmitEditing={handleSend}
+            returnKeyType="send"
+            blurOnSubmit={false}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              (!text.trim() || isSending) && styles.sendButtonDisabled,
+            ]}
+            onPress={handleSend}
+            disabled={!text.trim() || isSending}
+          >
+            {isSending ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Text style={styles.sendButtonIcon}>↑</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.charCounter}>
+          {text.length}/500
+        </Text>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -507,10 +711,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   errorMessage: {
-    fontSize: 16,
+    fontSize: 14,
     color: "#666",
     textAlign: "center",
-    lineHeight: 22,
+    lineHeight: 18,
     marginBottom: 30,
   },
   retryButton: {
@@ -523,6 +727,16 @@ const styles = StyleSheet.create({
     color: "#FFF",
     fontSize: 16,
     fontWeight: "600",
+  },
+  debugContainer: {
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    padding: 5,
+    alignItems: 'center',
+  },
+  debugText: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '500',
   },
   header: {
     flexDirection: "row",
@@ -591,22 +805,6 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     marginTop: 2,
   },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F5F5F5",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  menuIcon: {
-    fontSize: 24,
-    color: "#333",
-    fontWeight: "bold",
-  },
-  keyboardAvoid: {
-    flex: 1,
-  },
   listContent: {
     paddingHorizontal: 15,
     paddingTop: 15,
@@ -632,6 +830,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#999",
     textAlign: "center",
+    marginBottom: 20,
+  },
+  sendHelloButton: {
+    backgroundColor: "#FF4081",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  sendHelloButtonText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
   dateHeaderContainer: {
     flexDirection: "row",
@@ -699,6 +909,9 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  temporaryMessageBubble: {
+    backgroundColor: "rgba(255, 64, 129, 0.7)",
+  },
   messageText: {
     fontSize: 15,
     lineHeight: 20,
@@ -708,6 +921,10 @@ const styles = StyleSheet.create({
   },
   theirMessageText: {
     color: "#000",
+  },
+  temporaryMessageText: {
+    color: "rgba(255, 255, 255, 0.9)",
+    fontStyle: "italic",
   },
   messageTime: {
     fontSize: 10,
@@ -720,12 +937,16 @@ const styles = StyleSheet.create({
   theirMessageTime: {
     color: "#999",
   },
+  temporaryMessageTime: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontStyle: "italic",
+  },
   inputContainer: {
     backgroundColor: "#FFF",
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
     paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingTop: 10,
   },
   inputWrapper: {
     flexDirection: "row",

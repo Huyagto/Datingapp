@@ -26,9 +26,7 @@ type Profile = {
   birthday: string;
   avatar?: string;
 };
-
 export default function ProfileScreen({ navigation }: any) {
-  // State cho form
   const [name, setName] = useState("");
   const [gender, setGender] = useState("");
   const [bio, setBio] = useState("");
@@ -36,15 +34,11 @@ export default function ProfileScreen({ navigation }: any) {
   const [birthdayDate, setBirthdayDate] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Custom Date Picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(2000);
   const [selectedMonth, setSelectedMonth] = useState<number>(0); // 0-11
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [scrolling, setScrolling] = useState(false);
-
-  // Tạo dữ liệu cho picker
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 100 }, (_, i) => currentYear - i);
   const months = [
@@ -80,22 +74,14 @@ export default function ProfileScreen({ navigation }: any) {
       setSelectedDay(1);
     }
   }, [selectedYear, selectedMonth]);
-
-  // Query để lấy profile hiện tại
   const { data: profileData } = useQuery<{ myProfile: Profile }>(GET_MY_PROFILE);
-  
-  // Mutation để cập nhật
   const [updateProfile] = useMutation(UPDATE_MY_PROFILE);
-
-  // 🔥 Khi có dữ liệu profile, prefill vào form
   useEffect(() => {
     if (profileData?.myProfile) {
       const profile = profileData.myProfile;
       setName(profile.name || "");
       setGender(profile.gender || "");
       setBio(profile.bio || "");
-      
-      // Format birthday nếu có
       if (profile.birthday) {
         const date = new Date(profile.birthday);
         if (!isNaN(date.getTime())) {
@@ -104,24 +90,17 @@ export default function ProfileScreen({ navigation }: any) {
           setSelectedYear(date.getFullYear());
           setSelectedMonth(date.getMonth());
           setSelectedDay(date.getDate());
-          
-          // Cập nhật days list
           const daysInMonth = getDaysInMonth(date.getFullYear(), date.getMonth());
           const newDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
           setDays(newDays);
         }
       }
-      
       setIsLoading(false);
     }
   }, [profileData]);
-
-  // 🔥 Xử lý chọn giới tính
   const handleGenderSelect = (selectedGender: string) => {
     setGender(selectedGender);
   };
-
-  // 🔥 Xử lý custom date picker
   const handleDateSelect = () => {
     setShowDatePicker(true);
   };
@@ -129,8 +108,6 @@ export default function ProfileScreen({ navigation }: any) {
   const confirmDateSelection = () => {
     const selectedDate = new Date(selectedYear, selectedMonth, selectedDay);
     const today = new Date();
-    
-    // Validation
     if (selectedDate > today) {
       Alert.alert("Lỗi", "Ngày sinh không thể là ngày trong tương lai");
       return;
@@ -163,8 +140,6 @@ export default function ProfileScreen({ navigation }: any) {
       year: 'numeric',
     });
   };
-
-  // 🔥 Validate form
   const validateForm = () => {
     if (!name.trim()) {
       Alert.alert("Thiếu thông tin", "Vui lòng nhập tên của bạn");
@@ -190,8 +165,6 @@ export default function ProfileScreen({ navigation }: any) {
         gender,
         bio: bio.trim(),
       };
-      
-      // Chỉ thêm birthday nếu có và hợp lệ
       if (birthdayDate) {
         input.birthday = birthdayDate.toISOString();
       }
@@ -199,8 +172,6 @@ export default function ProfileScreen({ navigation }: any) {
       await updateProfile({
         variables: { input },
       });
-
-      // ✅ PROFILE XONG → VÀO HOME
       navigation.reset({
         index: 0,
         routes: [{ name: "Main" }],
@@ -246,18 +217,30 @@ export default function ProfileScreen({ navigation }: any) {
   );
 
   // 🔥 Handler cho scroll picker
-  const handleScrollEnd = (type: 'year' | 'month' | 'day', offsetY: number) => {
-    const index = Math.round(offsetY / 40);
-    
-    if (type === 'year' && index >= 0 && index < years.length) {
-      setSelectedYear(years[index]);
-    } else if (type === 'month' && index >= 0 && index < months.length) {
-      setSelectedMonth(months[index].value);
-    } else if (type === 'day' && index >= 0 && index < days.length) {
-      setSelectedDay(days[index]);
-    }
-    setScrolling(false);
-  };
+const ITEM_HEIGHT = 40;
+const PADDING_TOP = 80;
+
+const handleScrollEnd = (
+  type: 'year' | 'month' | 'day',
+  offsetY: number
+) => {
+  const index = Math.floor((offsetY - PADDING_TOP) / ITEM_HEIGHT);
+
+  if (index < 0) return;
+
+  if (type === 'year' && index < years.length) {
+    setSelectedYear(years[index]);
+  }
+
+  if (type === 'month' && index < months.length) {
+    setSelectedMonth(months[index].value);
+  }
+
+  if (type === 'day' && index < days.length) {
+    setSelectedDay(days[index]);
+  }
+};
+
 
   // 🔥 Hiển thị loading
   if (isLoading) {
@@ -493,7 +476,8 @@ export default function ProfileScreen({ navigation }: any) {
                     offset: 40 * index,
                     index,
                   })}
-                  initialScrollIndex={selectedMonth}
+                  initialScrollIndex={days.findIndex(d => d === selectedMonth)}
+
                 />
               </View>
 
@@ -520,7 +504,7 @@ export default function ProfileScreen({ navigation }: any) {
                     offset: 40 * index,
                     index,
                   })}
-                  initialScrollIndex={selectedDay - 1}
+                  initialScrollIndex={days.findIndex(d => d === selectedDay)}
                 />
               </View>
             </View>
