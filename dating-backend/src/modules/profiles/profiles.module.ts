@@ -7,6 +7,7 @@ import {
   UserSchema,
 } from '../users/user.schema';
 import { SwipeModule } from '../swipe/swipe.module';
+import { ProfilesService } from './profile.service';
 
 @Module({
   imports: [
@@ -15,9 +16,9 @@ import { SwipeModule } from '../swipe/swipe.module';
     ]),
     SwipeModule, 
   ],
-  providers: [ProfilesResolver],
+  providers: [ProfilesResolver,ProfilesService],
   exports: [
-    MongooseModule, // 🔥 DÒNG QUAN TRỌNG NHẤT
+    MongooseModule, 
   ],
 })
 export class ProfilesModule {}

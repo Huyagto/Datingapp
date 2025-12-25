@@ -22,7 +22,6 @@ export class SwipeResolver {
     @InjectModel(MatchDocument.name)
     private matchModel: Model<MatchDocument>,
   ) {}
-
   @Mutation(() => SwipeResult)
   async swipeUser(
     @Args('input') input: SwipeInput,
@@ -37,7 +36,6 @@ export class SwipeResolver {
     if (input.type === SwipeType.PASS) {
       return { isMatch: false };
     }
-
     const reverseLike = await this.swipeModel.findOne({
       fromUserId: input.toUserId,
       toUserId: user.id,

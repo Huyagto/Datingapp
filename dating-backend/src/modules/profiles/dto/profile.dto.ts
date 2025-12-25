@@ -1,19 +1,37 @@
-import { ObjectType, Field } from '@nestjs/graphql';
+// src/profiles/dto/profile.dto.ts
+import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 
 @ObjectType()
 export class ProfileDTO {
-  @Field(() => String)  
+  @Field(() => ID)
   id: string;
 
-  @Field(() => String)  
+  @Field()
   name: string;
 
-  @Field(() => String, { nullable: true })  
-  gender: string | null;
+  @Field({ nullable: true })
+  gender?: string;
 
-  @Field(() => String, { nullable: true })  
-  bio: string | null;
+  @Field({ nullable: true })
+  bio?: string;
 
-  @Field(() => Number)  
-  age: number;
+  @Field({ nullable: true })
+  birthday?: string;
+
+  @Field({ nullable: true })
+  age?: number;
+
+  @Field(() => [String], { nullable: true })
+  interests?: string[];
+
+  @Field()
+  createdAt: Date;
+}
+@ObjectType()
+export class SuggestedProfileDTO extends ProfileDTO {
+  @Field(() => Int, { nullable: true })
+  commonInterestsCount?: number;
+
+  @Field(() => Int, { nullable: true })
+  matchPercentage?: number;
 }

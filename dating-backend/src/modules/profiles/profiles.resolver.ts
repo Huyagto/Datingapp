@@ -1,86 +1,87 @@
+// src/profiles/profiles.resolver.ts
 import { Resolver, Query, Mutation, Args } from '@nestjs/graphql';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { NotFoundException, UseGuards } from '@nestjs/common';
-import { Swipe } from '../swipe/swipe.schema';
-import { UserDocument } from '../users/user.schema';
-import { ProfileDTO } from './dto/profile.dto';
+import { UseGuards } from '@nestjs/common';
+import { ProfileDTO, SuggestedProfileDTO } from './dto/profile.dto';
 import { UpdateProfileInput } from './dto/profile.input';
-
-import { GqlAuthGuard } from 'src/common/guards/gql-auth.guard';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { calcAge } from 'src/utils/age.util';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ProfilesService } from './profile.service';
 
 @Resolver(() => ProfileDTO)
 @UseGuards(GqlAuthGuard)
 export class ProfilesResolver {
   constructor(
-  @InjectModel(UserDocument.name)
-  private userModel: Model<UserDocument>,
+    private readonly profilesService: ProfilesService,
+  ) {}
 
-  @InjectModel(Swipe.name)
-  private swipeModel: Model<Swipe>,
-) {}
-
-@Mutation(() => ProfileDTO)
-async updateMyProfile(
-  @CurrentUser() user: { id: string },
-  @Args('input') input: UpdateProfileInput,
-): Promise<ProfileDTO> {
-  const updated = await this.userModel.findByIdAndUpdate(
-    user.id,
-    {
-      $set: {
-        name: input.name,
-        gender: input.gender,
-        bio: input.bio,
-        birthday: input.birthday,
-      },
-    },
-    { new: true },
-  );
-
-  if (!updated) {
-    throw new NotFoundException('User not found');
+  @Query(() => ProfileDTO)
+  async myProfile(
+    @CurrentUser() user: { id: string },
+  ): Promise<ProfileDTO> {
+    return this.profilesService.getMyProfile(user.id);
   }
 
-  return {
-    id: updated._id.toString(),
-    name: updated.name,
-    gender: updated.gender ?? null,
-    bio: updated.bio ?? null,
-    age: updated.birthday ? calcAge(updated.birthday) : 22,
-  };
-}
+  @Mutation(() => ProfileDTO)
+  async updateMyProfile(
+    @CurrentUser() user: { id: string },
+    @Args('input') input: UpdateProfileInput,
+  ): Promise<ProfileDTO> {
+    return this.profilesService.updateMyProfile(user.id, input);
+  }
 
+  @Query(() => [ProfileDTO])
+  async nearbyProfiles(
+    @CurrentUser() user: { id: string },
+    @Args('interestFilters', { 
+      type: () => [String],  
+      nullable: true 
+    }) interestFilters?: string[],
+  ): Promise<ProfileDTO[]> {
+    return this.profilesService.getNearbyProfiles(user.id, interestFilters);
+  }
 
-@UseGuards(GqlAuthGuard)
-@Query(() => [ProfileDTO])
-async nearbyProfiles(
+  @Query(() => [String], { nullable: true })
+  async popularInterests(
+    @Args('limit', { 
+      type: () => Number,  // 🔥 THÊM TYPE RÕ RÀNG
+      defaultValue: 20, 
+      nullable: true 
+    }) limit: number,
+  ): Promise<string[] | undefined> {
+    const interests = await this.profilesService.getPopularInterests(limit);
+    return interests.length > 0 ? interests : undefined;
+  }
+@Query(() => [SuggestedProfileDTO]) 
+async suggestedProfiles(
   @CurrentUser() user: { id: string },
-): Promise<ProfileDTO[]> {
-
-  const swipes = await this.swipeModel.find({
-    fromUserId: user.id,
-  });
-
-  const swipedIds = swipes.map(
-    (s) => s.toUserId.toString(),
-  );
-
-  const users = await this.userModel.find({
-    _id: {
-      $ne: user.id,
-      $nin: swipedIds, // 🔥 HẾT SPAM
-    },
-  });
-
-  return users.map((u) => ({
-    id: u._id.toString(),
-    name: u.name,
-    gender: u.gender ?? null,
-    bio: u.bio ?? null,
-    age: u.birthday ? calcAge(u.birthday) : 22,
-  }));
+  @Args('limit', { 
+    type: () => Number,
+    defaultValue: 10, 
+    nullable: true 
+  }) limit?: number,
+): Promise<SuggestedProfileDTO[]> {
+  return this.profilesService.getSuggestedProfiles(user.id, limit);
 }
-} 
+
+@Query(() => [SuggestedProfileDTO])
+async profilesWithMatchInfo(
+  @CurrentUser() user: { id: string },
+  @Args('limit', { 
+    type: () => Number,
+    defaultValue: 20, 
+    nullable: true 
+  }) limit?: number,
+): Promise<SuggestedProfileDTO[]> {
+  return this.profilesService.getProfilesWithMatchInfo(user.id, limit);
+}
+
+  @Query(() => Number)
+  async matchRate(
+    @CurrentUser() user: { id: string },
+    @Args('targetUserId', { 
+      type: () => String  
+    }) targetUserId: string,
+  ): Promise<number> {
+    return this.profilesService.calculateMatchRate(user.id, targetUserId);
+  }
+}

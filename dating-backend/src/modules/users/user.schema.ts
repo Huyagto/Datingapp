@@ -1,3 +1,4 @@
+// src/users/user.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
@@ -24,28 +25,11 @@ export class UserDocument extends Document {
   @Prop()
   birthday?: Date;
 
-  // @Prop({
-  //   type: {
-  //     type: String,
-  //     enum: ['Point'],
-  //     default: 'Point',
-  //   },
-  //   coordinates: {
-  //     type: [Number], 
-  //     default: [0, 0],
-  //   },
-  // })
-  // location: {
-  //   type: 'Point';
-  //   coordinates: [number, number];
-  // };
+  @Prop({ type: [String], default: [] })
+  interests: string[];
 
   createdAt: Date;
   updatedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(UserDocument);
-
-// 🔥 BẮT BUỘC
-UserSchema.index({ location: '2dsphere' });
-

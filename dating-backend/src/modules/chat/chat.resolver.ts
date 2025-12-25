@@ -25,9 +25,6 @@ export class ChatResolver {
     private readonly messageModel: Model<MessageDocument>,
   ) {}
 
-  /* ======================
-     LOAD CHAT HISTORY
-  ====================== */
   @UseGuards(GqlAuthGuard)
   @Query(() => [MessageDTO])
   async messages(
@@ -46,9 +43,6 @@ export class ChatResolver {
     }));
   }
 
-  /* ======================
-     SEND MESSAGE
-  ====================== */
   @UseGuards(GqlAuthGuard)
   @Mutation(() => MessageDTO)
   async sendMessage(

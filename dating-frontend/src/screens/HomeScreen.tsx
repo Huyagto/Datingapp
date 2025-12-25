@@ -8,13 +8,14 @@ import {
   PanResponder,
   Dimensions,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useEffect, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
-import { NEARBY_PROFILES } from "../graphql/profile";
+import { SUGGESTED_PROFILES } from "../graphql/profile"; // 🔥 ĐỔI QUERY
 import { SWIPE_USER } from "../graphql/swipe";
 
 const { width, height } = Dimensions.get("window");
@@ -22,7 +23,7 @@ const SWIPE_THRESHOLD = 120;
 const SWIPE_OUT_DURATION = 200;
 
 /* ======================
-   TYPES
+   TYPES - CẬP NHẬT
 ====================== */
 type Profile = {
   id: string;
@@ -32,13 +33,17 @@ type Profile = {
   bio?: string | null;
   distance?: number;
   interests?: string[];
+  commonInterestsCount?: number; // 🔥 THÊM
+  matchPercentage?: number;      // 🔥 THÊM
 };
 
 export default function HomeScreen() {
+  // 🔥 ĐỔI QUERY TỪ NEARBY_PROFILES → SUGGESTED_PROFILES
   const { data, loading, error, refetch } = useQuery<{
-    nearbyProfiles: Profile[];
-  }>(NEARBY_PROFILES, {
+    suggestedProfiles: Profile[];
+  }>(SUGGESTED_PROFILES, {
     fetchPolicy: "network-only",
+    variables: { limit: 20 }, // Có thể điều chỉnh limit
   });
 
   const [swipeUser] = useMutation(SWIPE_USER);
@@ -87,33 +92,22 @@ export default function HomeScreen() {
       );
     }
   }, [profiles]);
-
-  /* ======================
-     EFFECT
-====================== */
   useEffect(() => {
-    if (data?.nearbyProfiles) {
-      const profilesWithInterests = data.nearbyProfiles.map((profile) => ({
+    if (data?.suggestedProfiles) { 
+      console.log("📱 Suggested profiles data:", data.suggestedProfiles);
+      
+      const profilesWithDistance = data.suggestedProfiles.map((profile) => ({
         ...profile,
         distance: Math.floor(Math.random() * 20) + 1,
-        interests: [
-          "Du lịch",
-          "Âm nhạc",
-          "Thể thao",
-          "Ẩm thực",
-          "Đọc sách",
-          "Phim ảnh",
-          "Cà phê",
-        ].sort(() => 0.5 - Math.random()).slice(0, 3),
+        interests: profile.interests || [],
       }));
-      setProfiles(profilesWithInterests);
+      
+      console.log("📱 Processed suggested profiles:", profilesWithDistance);
+      setProfiles(profilesWithDistance);
       setCurrentIndex(0);
     }
   }, [data]);
 
-  /* ======================
-     PAN RESPONDER
-====================== */
   const createPanResponder = (index: number) =>
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -143,52 +137,72 @@ export default function HomeScreen() {
     const toUser = profiles[index];
     if (!toUser) return;
 
-    Animated.parallel([
-      Animated.timing(positions.current[index], {
-        toValue: { x: width + 100, y: 0 },
-        duration: SWIPE_OUT_DURATION,
-        useNativeDriver: true,
-      }),
-      Animated.spring(positions.current[index + 1] || new Animated.ValueXY(), {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: true,
-        friction: 8,
-        tension: 40,
-      }),
-    ]).start(async () => {
-      await swipeUser({
-        variables: {
-          input: { toUserId: toUser.id, type: "LIKE" },
-        },
+    try {
+      Animated.parallel([
+        Animated.timing(positions.current[index], {
+          toValue: { x: width + 100, y: 0 },
+          duration: SWIPE_OUT_DURATION,
+          useNativeDriver: true,
+        }),
+        Animated.spring(positions.current[index + 1] || new Animated.ValueXY(), {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+          friction: 8,
+          tension: 40,
+        }),
+      ]).start(async () => {
+        try {
+          await swipeUser({
+            variables: {
+              input: { toUserId: toUser.id, type: "LIKE" },
+            },
+          });
+          setCurrentIndex((prev) => prev + 1);
+        } catch (error) {
+          console.error("❌ Swipe error:", error);
+          Alert.alert("Lỗi", "Không thể swipe. Vui lòng thử lại");
+          resetPosition(index);
+        }
       });
-      setCurrentIndex((prev) => prev + 1);
-    });
+    } catch (error) {
+      console.error("❌ Animation error:", error);
+    }
   };
 
   const swipeLeft = async (index: number) => {
     const toUser = profiles[index];
     if (!toUser) return;
 
-    Animated.parallel([
-      Animated.timing(positions.current[index], {
-        toValue: { x: -width - 100, y: 0 },
-        duration: SWIPE_OUT_DURATION,
-        useNativeDriver: true,
-      }),
-      Animated.spring(positions.current[index + 1] || new Animated.ValueXY(), {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: true,
-        friction: 8,
-        tension: 40,
-      }),
-    ]).start(async () => {
-      await swipeUser({
-        variables: {
-          input: { toUserId: toUser.id, type: "PASS" },
-        },
+    try {
+      Animated.parallel([
+        Animated.timing(positions.current[index], {
+          toValue: { x: -width - 100, y: 0 },
+          duration: SWIPE_OUT_DURATION,
+          useNativeDriver: true,
+        }),
+        Animated.spring(positions.current[index + 1] || new Animated.ValueXY(), {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+          friction: 8,
+          tension: 40,
+        }),
+      ]).start(async () => {
+        try {
+          await swipeUser({
+            variables: {
+              input: { toUserId: toUser.id, type: "PASS" },
+            },
+          });
+          setCurrentIndex((prev) => prev + 1);
+        } catch (error) {
+          console.error("❌ Swipe error:", error);
+          Alert.alert("Lỗi", "Không thể swipe. Vui lòng thử lại");
+          resetPosition(index);
+        }
       });
-      setCurrentIndex((prev) => prev + 1);
-    });
+    } catch (error) {
+      console.error("❌ Animation error:", error);
+    }
   };
 
   const resetPosition = (index: number) => {
@@ -201,7 +215,7 @@ export default function HomeScreen() {
   };
 
   /* ======================
-     RENDER CARD
+     RENDER CARD - THÊM HIỂN THỊ MATCH INFO
 ====================== */
   const renderCard = (profile: Profile, index: number) => {
     if (index < currentIndex) return null;
@@ -209,8 +223,6 @@ export default function HomeScreen() {
     const isTopCard = index === currentIndex;
     const isSecondCard = index === currentIndex + 1;
     const panResponder = createPanResponder(index);
-
-    // Tạo style cho card với đúng types
     const cardStyle = [
       styles.card,
       {
@@ -245,6 +257,16 @@ export default function HomeScreen() {
 
         {/* Header Info */}
         <View style={styles.headerInfo}>
+          {/* 🔥 HIỂN THỊ MATCH PERCENTAGE */}
+          {profile.matchPercentage && profile.matchPercentage > 0 && (
+            <View style={styles.matchBadge}>
+              <Ionicons name="heart" size={14} color="#FFF" />
+              <Text style={styles.matchText}>
+                {profile.matchPercentage}% phù hợp
+              </Text>
+            </View>
+          )}
+          
           <View style={styles.location}>
             <Ionicons name="location" size={16} color="#FFF" />
             <Text style={styles.locationText}>{profile.distance} km</Text>
@@ -260,9 +282,7 @@ export default function HomeScreen() {
             {profile.gender && (
               <View style={styles.genderBadge}>
                 <Ionicons
-                  name={
-                    profile.gender === "FEMALE" ? "female" : "male"
-                  }
+                  name={profile.gender === "FEMALE" ? "female" : "male"}
                   size={16}
                   color="#FFF"
                 />
@@ -283,14 +303,29 @@ export default function HomeScreen() {
             </Text>
           )}
 
-          {/* Interests */}
+          {/* Interests với hiển thị số interests chung */}
           {profile.interests && profile.interests.length > 0 && (
-            <View style={styles.interestsContainer}>
-              {profile.interests.map((interest, idx) => (
-                <View key={idx} style={styles.interestChip}>
-                  <Text style={styles.interestText}>{interest}</Text>
-                </View>
-              ))}
+            <View style={styles.interestsSection}>
+              <View style={styles.interestsHeader}>
+                <Text style={styles.interestsTitle}>
+                  Sở thích {profile.commonInterestsCount ? 
+                    `(${profile.commonInterestsCount} chung với bạn)` : ''}
+                </Text>
+              </View>
+              <View style={styles.interestsContainer}>
+                {profile.interests.slice(0, 5).map((interest, idx) => (
+                  <View key={idx} style={styles.interestChip}>
+                    <Text style={styles.interestText}>{interest}</Text>
+                  </View>
+                ))}
+                {profile.interests.length > 5 && (
+                  <View style={[styles.interestChip, styles.moreInterestChip]}>
+                    <Text style={styles.interestText}>
+                      +{profile.interests.length - 5}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           )}
         </View>
@@ -303,9 +338,7 @@ export default function HomeScreen() {
                 styles.likeBadge,
                 {
                   opacity: likeOpacities.current[index] || 0,
-                  transform: [
-                    { rotate: "-20deg" },
-                  ],
+                  transform: [{ rotate: "-20deg" }],
                 },
               ]}
             >
@@ -323,9 +356,7 @@ export default function HomeScreen() {
                 styles.nopeBadge,
                 {
                   opacity: nopeOpacities.current[index] || 0,
-                  transform: [
-                    { rotate: "20deg" },
-                  ],
+                  transform: [{ rotate: "20deg" }],
                 },
               ]}
             >
@@ -354,12 +385,41 @@ export default function HomeScreen() {
           style={StyleSheet.absoluteFill}
         />
         <ActivityIndicator size="large" color="#FFF" />
-        <Text style={styles.loadingText}>Đang tìm kiếm hồ sơ...</Text>
+        <Text style={styles.loadingText}>Đang tìm người phù hợp...</Text>
+        <Text style={styles.loadingSubtext}>
+          Dựa trên sở thích của bạn
+        </Text>
       </View>
     );
   }
 
-  if (error || profiles.length === 0 || currentIndex >= profiles.length) {
+  if (error) {
+    console.error("❌ GraphQL Error:", error);
+    return (
+      <View style={styles.centerContainer}>
+        <LinearGradient
+          colors={["#667EEA", "#764BA2"]}
+          style={StyleSheet.absoluteFill}
+        />
+        <Ionicons name="alert-circle-outline" size={80} color="#FFF" />
+        <Text style={styles.emptyText}>Lỗi tải dữ liệu</Text>
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={() => refetch()}
+        >
+          <LinearGradient
+            colors={["#FF6B95", "#FF8E53"]}
+            style={styles.refreshGradient}
+          >
+            <Ionicons name="refresh" size={24} color="#FFF" />
+            <Text style={styles.refreshText}>Thử lại</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (profiles.length === 0) {
     return (
       <View style={styles.centerContainer}>
         <LinearGradient
@@ -367,7 +427,10 @@ export default function HomeScreen() {
           style={StyleSheet.absoluteFill}
         />
         <Ionicons name="people-outline" size={80} color="#FFF" />
-        <Text style={styles.emptyText}>Hết hồ sơ để swipe 👀</Text>
+        <Text style={styles.emptyText}>Chưa tìm thấy người phù hợp</Text>
+        <Text style={styles.hintText}>
+          Hãy cập nhật sở thích của bạn để tìm match tốt hơn
+        </Text>
         <TouchableOpacity
           style={styles.refreshButton}
           onPress={() => refetch()}
@@ -384,9 +447,34 @@ export default function HomeScreen() {
     );
   }
 
-  /* ======================
-     MAIN UI
-====================== */
+  if (currentIndex >= profiles.length) {
+    return (
+      <View style={styles.centerContainer}>
+        <LinearGradient
+          colors={["#667EEA", "#764BA2"]}
+          style={StyleSheet.absoluteFill}
+        />
+        <Ionicons name="checkmark-circle-outline" size={80} color="#FFF" />
+        <Text style={styles.emptyText}>Bạn đã xem hết rồi! 🎉</Text>
+        <Text style={styles.hintText}>
+          Đã swipe {profiles.length} hồ sơ phù hợp
+        </Text>
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={() => refetch()}
+        >
+          <LinearGradient
+            colors={["#FF6B95", "#FF8E53"]}
+            style={styles.refreshGradient}
+          >
+            <Ionicons name="refresh" size={24} color="#FFF" />
+            <Text style={styles.refreshText}>Xem thêm</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" />
@@ -400,7 +488,7 @@ export default function HomeScreen() {
           <TouchableOpacity>
             <Ionicons name="menu" size={28} color="#FFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Discover</Text>
+          <Text style={styles.headerTitle}>Phù hợp với bạn</Text>
           <TouchableOpacity>
             <Ionicons name="filter" size={28} color="#FFF" />
           </TouchableOpacity>
@@ -443,7 +531,7 @@ export default function HomeScreen() {
 }
 
 /* ======================
-   STYLES
+   STYLES - THÊM STYLES MỚI
 ====================== */
 const styles = StyleSheet.create({
   container: {
@@ -454,17 +542,31 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 20,
   },
   loadingText: {
     marginTop: 20,
-    fontSize: 16,
+    fontSize: 18,
     color: "#FFF",
+    fontWeight: "600",
+  },
+  loadingSubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
   },
   emptyText: {
     marginTop: 20,
     fontSize: 20,
     color: "#FFF",
     fontWeight: "600",
+  },
+  hintText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
+    textAlign: "center",
+    marginBottom: 20,
   },
 
   // Header
@@ -522,14 +624,29 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.2)",
   },
 
-  // Header Info
+  // Header Info với match badge
   headerInfo: {
     position: "absolute",
     top: 20,
     left: 20,
     right: 20,
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  matchBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,107,149,0.8)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  matchText: {
+    marginLeft: 4,
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "600",
   },
   location: {
     flexDirection: "row",
@@ -589,23 +706,38 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // Interests
+  // Interests section mới
+  interestsSection: {
+    marginTop: 12,
+  },
+  interestsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  interestsTitle: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.8)",
+    fontWeight: "600",
+  },
   interestsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 8,
+    gap: 6,
   },
   interestChip: {
     backgroundColor: "rgba(255,255,255,0.15)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  moreInterestChip: {
+    backgroundColor: "rgba(255,107,149,0.3)",
   },
   interestText: {
     color: "#FFF",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
   },
 

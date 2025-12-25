@@ -51,7 +51,6 @@ import {
 export default function ChatScreen(props: any) {
   const { route, navigation } = props;
   
-  // Destructuring với default values
   const params = route?.params || {};
   const matchId = params.matchId;
   const partnerName = params.partnerName || "Người dùng";
@@ -91,9 +90,6 @@ export default function ChatScreen(props: any) {
     );
   }
 
-  /* ======================
-     GET CURRENT USER ID
-  ====================== */
   useEffect(() => {
     const getUserId = async () => {
       try {
@@ -116,19 +112,19 @@ export default function ChatScreen(props: any) {
     notifyOnNetworkStatusChange: true,
     pollInterval: 30000, 
   });
-  // Xử lý data khi load xong
+
   useEffect(() => {
     if (data?.messages) {
       console.log("📨 Setting messages:", data.messages.length);
       
-      // Sắp xếp messages theo thời gian
+
       const sortedMessages = [...data.messages].sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
       
       setMessages(sortedMessages);
       
-      // Set date headers với type đầy đủ
+      
       const headers: Record<string, boolean> = {};
       sortedMessages.forEach((msg: Message) => {
         const date = formatDateHeader(msg.createdAt);
@@ -171,8 +167,6 @@ export default function ChatScreen(props: any) {
         }
         
         console.log("✅ Adding new subscription message to state");
-        
-        // Add date header if needed
         const date = formatDateHeader(newMsg.createdAt);
         if (!showDateHeaders[date]) {
           setShowDateHeaders((prevHeaders: Record<string, boolean>) => ({ 
@@ -180,8 +174,6 @@ export default function ChatScreen(props: any) {
             [date]: true 
           }));
         }
-        
-        // Thêm tin nhắn mới và sắp xếp lại
         const updatedMessages = [...prev, newMsg].sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
@@ -215,7 +207,6 @@ export default function ChatScreen(props: any) {
       }
     };
 
-    // Thêm event listeners
     const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
@@ -410,7 +401,6 @@ export default function ChatScreen(props: any) {
           
           if (!realMessageExists && tempMessageExists) {
             console.log("🕒 Timeout - replacing temporary message with real one");
-            // Thay thế tin nhắn tạm bằng tin nhắn thật
             const filtered = prev.filter(msg => msg.id !== tempId);
             if (result.data?.sendMessage) {
               return [...filtered, result.data.sendMessage].sort(
@@ -555,13 +545,6 @@ export default function ChatScreen(props: any) {
       
       {/* Header - Đã bỏ nút refresh */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation?.goBack?.()}
-        >
-          <Text style={styles.backButtonIcon}>←</Text>
-        </TouchableOpacity>
-        
         <View style={styles.headerInfo}>
           {partnerAvatar ? (
             <Image source={{ uri: partnerAvatar }} style={styles.headerAvatar} />
@@ -583,15 +566,6 @@ export default function ChatScreen(props: any) {
         {/* Đã bỏ nút refresh */}
         <View style={{ width: 40 }} />
       </View>
-
-      {/* Debug Info - Chỉ hiển thị trong dev mode */}
-      {__DEV__ && (
-        <View style={styles.debugContainer}>
-          <Text style={styles.debugText}>
-            Tin nhắn: {messages.length} | Tự động làm mới: 15s | Sub: {subscriptionData ? "✅" : "❌"}
-          </Text>
-        </View>
-      )}
 
       {/* Messages List - Đã bỏ pull-to-refresh */}
       <FlatList
@@ -949,9 +923,10 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   inputWrapper: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-  },
+  flexDirection: "row",
+  alignItems: "flex-end",
+  marginTop: -100,
+},
   textInput: {
     flex: 1,
     backgroundColor: "#F5F5F5",
