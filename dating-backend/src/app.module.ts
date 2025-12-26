@@ -21,7 +21,7 @@ import { PresenceModule } from './modules/presence/presence.module';
       isGlobal: true,
     }),
     MongooseModule.forRoot(
-      process.env.MONGO_URI as string,
+      process.env.MONGODB_URI as string,
     ),
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,

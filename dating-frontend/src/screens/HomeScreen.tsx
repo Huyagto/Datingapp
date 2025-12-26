@@ -1,3 +1,4 @@
+// src/screens/HomeScreen.tsx
 import {
   View,
   Text,
@@ -9,13 +10,14 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
+  ImageBackground,
 } from "react-native";
 import { useQuery, useMutation } from "@apollo/client/react";
 import { useEffect, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
-import { SUGGESTED_PROFILES } from "../graphql/profile"; // 🔥 ĐỔI QUERY
+import { SUGGESTED_PROFILES } from "../graphql/profile";
 import { SWIPE_USER } from "../graphql/swipe";
 
 const { width, height } = Dimensions.get("window");
@@ -23,42 +25,62 @@ const SWIPE_THRESHOLD = 120;
 const SWIPE_OUT_DURATION = 200;
 
 /* ======================
-   TYPES - CẬP NHẬT
+   TYPES - CẬP NHẬT ĐẦY ĐỦ
 ====================== */
 type Profile = {
   id: string;
   name: string;
-  age: number;
+  age?: number;
   gender?: string | null;
   bio?: string | null;
+  photos?: string[];
+  birthday?: string;
   distance?: number;
+  distanceUnit?: string;
   interests?: string[];
-  commonInterestsCount?: number; // 🔥 THÊM
-  matchPercentage?: number;      // 🔥 THÊM
+  commonInterestsCount?: number;
+  matchPercentage?: number;
+  score?: number;
+  scores?: {
+    interest: number;
+    profile: number;
+    activity: number;
+    total: number;
+  };
+  isNearby?: boolean;
+  isActive?: boolean;
+  location?: {
+    coordinates: number[];
+    address?: string;
+    city?: string;
+    country?: string;
+    shareLocation: boolean;
+  };
+  createdAt: string;
 };
 
 export default function HomeScreen() {
-  // 🔥 ĐỔI QUERY TỪ NEARBY_PROFILES → SUGGESTED_PROFILES
   const { data, loading, error, refetch } = useQuery<{
     suggestedProfiles: Profile[];
   }>(SUGGESTED_PROFILES, {
     fetchPolicy: "network-only",
-    variables: { limit: 20 }, // Có thể điều chỉnh limit
+    variables: { limit: 20 },
   });
 
   const [swipeUser] = useMutation(SWIPE_USER);
 
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState<number>(0);
 
-  // Array of animations for better performance
+  // Animations
   const positions = useRef<Animated.ValueXY[]>([]);
   const rotateAnims = useRef<Animated.AnimatedInterpolation<string>[]>([]);
   const likeOpacities = useRef<Animated.AnimatedInterpolation<number>[]>([]);
   const nopeOpacities = useRef<Animated.AnimatedInterpolation<number>[]>([]);
   const scaleAnims = useRef<Animated.AnimatedInterpolation<number>[]>([]);
 
-  // Initialize animations for each profile
+  // Initialize animations
   useEffect(() => {
     if (profiles.length > 0) {
       positions.current = profiles.map(() => new Animated.ValueXY());
@@ -92,21 +114,39 @@ export default function HomeScreen() {
       );
     }
   }, [profiles]);
+
   useEffect(() => {
     if (data?.suggestedProfiles) { 
       console.log("📱 Suggested profiles data:", data.suggestedProfiles);
       
-      const profilesWithDistance = data.suggestedProfiles.map((profile) => ({
+      const processedProfiles = data.suggestedProfiles.map((profile) => ({
         ...profile,
-        distance: Math.floor(Math.random() * 20) + 1,
+        distance: profile.distance || Math.floor(Math.random() * 20) + 1,
         interests: profile.interests || [],
+        photos: profile.photos || [],
+        age: profile.age || (profile.birthday ? calculateAge(profile.birthday) : undefined),
       }));
       
-      console.log("📱 Processed suggested profiles:", profilesWithDistance);
-      setProfiles(profilesWithDistance);
+      console.log("📱 Processed suggested profiles:", processedProfiles);
+      setProfiles(processedProfiles);
       setCurrentIndex(0);
+      setCurrentPhotoIndex(0);
     }
   }, [data]);
+
+  // Helper function to calculate age from birthday
+  const calculateAge = (birthday: string): number => {
+    const birthDate = new Date(birthday);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return age;
+  };
 
   const createPanResponder = (index: number) =>
     PanResponder.create({
@@ -158,6 +198,7 @@ export default function HomeScreen() {
             },
           });
           setCurrentIndex((prev) => prev + 1);
+          setCurrentPhotoIndex(0);
         } catch (error) {
           console.error("❌ Swipe error:", error);
           Alert.alert("Lỗi", "Không thể swipe. Vui lòng thử lại");
@@ -194,6 +235,7 @@ export default function HomeScreen() {
             },
           });
           setCurrentIndex((prev) => prev + 1);
+          setCurrentPhotoIndex(0);
         } catch (error) {
           console.error("❌ Swipe error:", error);
           Alert.alert("Lỗi", "Không thể swipe. Vui lòng thử lại");
@@ -214,8 +256,35 @@ export default function HomeScreen() {
     }).start();
   };
 
+  // Handle photo navigation
+  const nextPhoto = () => {
+    const currentProfile = profiles[currentIndex];
+    if (currentProfile?.photos && currentProfile.photos.length > 0) {
+      setCurrentPhotoIndex(prev => 
+        prev < currentProfile.photos!.length - 1 ? prev + 1 : 0
+      );
+    }
+  };
+
+  const prevPhoto = () => {
+    const currentProfile = profiles[currentIndex];
+    if (currentProfile?.photos && currentProfile.photos.length > 0) {
+      setCurrentPhotoIndex(prev => 
+        prev > 0 ? prev - 1 : currentProfile.photos!.length - 1
+      );
+    }
+  };
+
+  // Get current photo
+  const getCurrentPhoto = (profile: Profile) => {
+    if (!profile.photos || profile.photos.length === 0) {
+      return null;
+    }
+    return profile.photos[currentPhotoIndex % profile.photos.length];
+  };
+
   /* ======================
-     RENDER CARD - THÊM HIỂN THỊ MATCH INFO
+     RENDER CARD
 ====================== */
   const renderCard = (profile: Profile, index: number) => {
     if (index < currentIndex) return null;
@@ -223,6 +292,11 @@ export default function HomeScreen() {
     const isTopCard = index === currentIndex;
     const isSecondCard = index === currentIndex + 1;
     const panResponder = createPanResponder(index);
+    const currentPhoto = getCurrentPhoto(profile);
+    const hasPhotos = profile.photos && profile.photos.length > 0;
+    const actualDistance = profile.distance || Math.floor(Math.random() * 20) + 1;
+    const ageText = profile.age ? `, ${profile.age}` : '';
+
     const cardStyle = [
       styles.card,
       {
@@ -247,17 +321,65 @@ export default function HomeScreen() {
         ]}
         {...(isTopCard ? panResponder.panHandlers : {})}
       >
-        {/* Background Image/Color */}
-        <LinearGradient
-          colors={["#FF6B95", "#FF8E53", "#FF6B95"]}
-          style={styles.gradientBackground}
-        >
-          <View style={styles.overlay} />
-        </LinearGradient>
+        {/* BACKGROUND IMAGE or GRADIENT */}
+        {hasPhotos && currentPhoto ? (
+          <ImageBackground
+            source={{ uri: currentPhoto }}
+            style={styles.backgroundImage}
+            resizeMode="cover"
+          >
+            <View style={styles.imageOverlay} />
+          </ImageBackground>
+        ) : (
+          <LinearGradient
+            colors={["#FF6B95", "#FF8E53", "#FF6B95"]}
+            style={styles.gradientBackground}
+          >
+            <View style={styles.overlay} />
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarText}>
+                {profile.name ? profile.name.charAt(0).toUpperCase() : "?"}
+              </Text>
+            </View>
+          </LinearGradient>
+        )}
+
+        {/* PHOTO NAVIGATION DOTS */}
+        {hasPhotos && profile.photos && profile.photos.length > 1 && isTopCard && (
+          <View style={styles.photoDotsContainer}>
+            {profile.photos.map((_, dotIndex) => (
+              <View
+                key={dotIndex}
+                style={[
+                  styles.photoDot,
+                  dotIndex === currentPhotoIndex && styles.photoDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* PHOTO NAVIGATION BUTTONS */}
+        {hasPhotos && profile.photos && profile.photos.length > 1 && isTopCard && (
+          <>
+            <TouchableOpacity
+              style={[styles.navButton, styles.prevButton]}
+              onPress={prevPhoto}
+            >
+              <Ionicons name="chevron-back" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navButton, styles.nextButton]}
+              onPress={nextPhoto}
+            >
+              <Ionicons name="chevron-forward" size={24} color="#FFF" />
+            </TouchableOpacity>
+          </>
+        )}
 
         {/* Header Info */}
         <View style={styles.headerInfo}>
-          {/* 🔥 HIỂN THỊ MATCH PERCENTAGE */}
+          {/* Match Percentage */}
           {profile.matchPercentage && profile.matchPercentage > 0 && (
             <View style={styles.matchBadge}>
               <Ionicons name="heart" size={14} color="#FFF" />
@@ -267,9 +389,10 @@ export default function HomeScreen() {
             </View>
           )}
           
+          {/* Distance */}
           <View style={styles.location}>
             <Ionicons name="location" size={16} color="#FFF" />
-            <Text style={styles.locationText}>{profile.distance} km</Text>
+            <Text style={styles.locationText}>{actualDistance} km</Text>
           </View>
         </View>
 
@@ -277,7 +400,7 @@ export default function HomeScreen() {
         <View style={styles.profileInfo}>
           <View style={styles.nameContainer}>
             <Text style={styles.name}>
-              {profile.name}, {profile.age}
+              {profile.name}{ageText}
             </Text>
             {profile.gender && (
               <View style={styles.genderBadge}>
@@ -303,7 +426,7 @@ export default function HomeScreen() {
             </Text>
           )}
 
-          {/* Interests với hiển thị số interests chung */}
+          {/* Interests */}
           {profile.interests && profile.interests.length > 0 && (
             <View style={styles.interestsSection}>
               <View style={styles.interestsHeader}>
@@ -326,6 +449,25 @@ export default function HomeScreen() {
                   </View>
                 )}
               </View>
+            </View>
+          )}
+
+          {/* Score (if available) */}
+          {profile.score && profile.score > 0 && (
+            <View style={styles.scoreContainer}>
+              <Text style={styles.scoreText}>
+                Điểm phù hợp: {profile.score}
+              </Text>
+            </View>
+          )}
+
+          {/* PHOTO COUNT BADGE */}
+          {hasPhotos && profile.photos && (
+            <View style={styles.photoCountBadge}>
+              <Ionicons name="images" size={14} color="#FFF" />
+              <Text style={styles.photoCountText}>
+                {profile.photos!.length} ảnh
+              </Text>
             </View>
           )}
         </View>
@@ -387,7 +529,7 @@ export default function HomeScreen() {
         <ActivityIndicator size="large" color="#FFF" />
         <Text style={styles.loadingText}>Đang tìm người phù hợp...</Text>
         <Text style={styles.loadingSubtext}>
-          Dựa trên sở thích của bạn
+          Dựa trên sở thích và vị trí của bạn
         </Text>
       </View>
     );
@@ -429,7 +571,7 @@ export default function HomeScreen() {
         <Ionicons name="people-outline" size={80} color="#FFF" />
         <Text style={styles.emptyText}>Chưa tìm thấy người phù hợp</Text>
         <Text style={styles.hintText}>
-          Hãy cập nhật sở thích của bạn để tìm match tốt hơn
+          Hãy cập nhật sở thích, ảnh và vị trí của bạn để tìm match tốt hơn
         </Text>
         <TouchableOpacity
           style={styles.refreshButton}
@@ -531,7 +673,7 @@ export default function HomeScreen() {
 }
 
 /* ======================
-   STYLES - THÊM STYLES MỚI
+   STYLES
 ====================== */
 const styles = StyleSheet.create({
   container: {
@@ -612,16 +754,90 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
+
+  // BACKGROUND IMAGE
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+
+  // GRADIENT BACKGROUND (fallback)
   gradientBackground: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.2)",
+  },
+  avatarPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  avatarText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#FFF',
+  },
+
+  // PHOTO NAVIGATION DOTS
+  photoDotsContainer: {
+    position: 'absolute',
+    top: 80,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  photoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    marginHorizontal: 4,
+  },
+  photoDotActive: {
+    backgroundColor: '#FF4081',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+
+  // PHOTO NAVIGATION BUTTONS
+  navButton: {
+    position: 'absolute',
+    top: '40%',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  prevButton: {
+    left: 10,
+  },
+  nextButton: {
+    right: 10,
   },
 
   // Header Info với match badge
@@ -706,7 +922,41 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // Interests section mới
+  // Score Container
+  scoreContainer: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(102, 126, 234, 0.7)',
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+  },
+  scoreText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  // PHOTO COUNT BADGE
+  photoCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'absolute',
+    top: -40,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  photoCountText: {
+    marginLeft: 4,
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // Interests section
   interestsSection: {
     marginTop: 12,
   },

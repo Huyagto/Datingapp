@@ -15,5 +15,8 @@ export class UpdateProfileInput {
   birthday?: string;
 
   @Field(() => [String], { nullable: true })
+  photos?: string[];
+
+  @Field(() => [String], { nullable: true })
   interests?: string[];
 }

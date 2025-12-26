@@ -1,15 +1,17 @@
-// src/graphql/queries/profile.ts
-import { gql } from "@apollo/client";
+// src/graphql/profile.ts
+import { gql } from '@apollo/client';
 
-export const NEARBY_PROFILES = gql`
-  query NearbyProfiles {
-    nearbyProfiles {
+export const GET_MY_PROFILE = gql`
+  query GetMyProfile {
+    myProfile {
       id
       name
-      age
       gender
       bio
+      birthday
+      photos  # 🔥 Thêm photos
       interests
+      createdAt
     }
   }
 `;
@@ -21,41 +23,48 @@ export const UPDATE_MY_PROFILE = gql`
       name
       gender
       bio
-      age
       birthday
+      photos  # 🔥 Thêm photos
       interests
+      createdAt
     }
   }
 `;
-export const GET_MY_PROFILE = gql`
-  query MyProfile {
-    myProfile {
-      id
-      name
-      gender
-      bio
-      age
-      birthday
-      interests
-    }
+
+export const UPLOAD_PHOTOS = gql`
+  mutation UploadPhotos($photos: [String!]!) {
+    uploadPhotos(photos: $photos)
+  }
+`;
+
+export const DELETE_PHOTO = gql`
+  mutation DeletePhoto($photoUrl: String!) {
+    deletePhoto(photoUrl: $photoUrl)
+  }
+`;
+
+export const SET_PRIMARY_PHOTO = gql`
+  mutation SetPrimaryPhoto($photoUrl: String!) {
+    setPrimaryPhoto(photoUrl: $photoUrl)
   }
 `;
 export const SUGGESTED_PROFILES = gql`
-  query SuggestedProfiles($limit: Float) {
+  query SuggestedProfiles($limit: Int = 20) {
     suggestedProfiles(limit: $limit) {
       id
       name
       age
       gender
       bio
+      photos
+      birthday
+      distance
+      distanceUnit
       interests
-      commonInterestsCount  
-      matchPercentage       
+      commonInterestsCount
+      matchPercentage
+      score
+      createdAt
     }
   }
 `;
-// export const UPDATE_MY_LOCATION = gql`
-//   mutation UpdateMyLocation($input: UpdateLocationInput!) {
-//     updateMyLocation(input: $input)
-//   }
-// `;
